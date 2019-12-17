@@ -7,6 +7,8 @@ from hologram import JsonSchemaMixin, ValidationError
 from dbt.contracts.rpc import RPCParameters, RemoteResult, RemoteMethodFlags
 from dbt.exceptions import NotImplementedException, InternalException
 
+from dbt.task.base import BaseTask
+
 Parameters = TypeVar('Parameters', bound=RPCParameters)
 Result = TypeVar('Result', bound=RemoteResult)
 
@@ -16,7 +18,7 @@ Result = TypeVar('Result', bound=RemoteResult)
 T = TypeVar('T', bound='RemoteMethod')
 
 
-class RemoteMethod(Generic[Parameters, Result]):
+class RemoteMethod(Generic[Parameters, Result], BaseTask):
     METHOD_NAME: Optional[str] = None
 
     def __init__(self, args, config):

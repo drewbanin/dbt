@@ -133,8 +133,14 @@ class RemoteRunOperationTask(
         return RunOperationTask._runtime_initialize(self)
 
     def handle_request(self) -> RemoteRunOperationResult:
-        success, _ = RunOperationTask.run(self)
-        result = RemoteRunOperationResult(logs=[], success=success)
+        base = RunOperationTask.run(self)
+        result = RemoteRunOperationResult(
+            results=base.results,
+            generated_at=base.generated_at,
+            logs=[],
+            success=base.success,
+            elapsed_time=base.elapsed_time
+        )
         return result
 
     def interpret_results(self, results):

@@ -64,7 +64,245 @@ $
 _VERSION_REGEX = re.compile(_VERSION_REGEX_PAT_STR, re.VERBOSE)
 
 
-class VersionRange(dbt.utils.AttrDict):
+# class VersionRange(dbt.utils.AttrDict):
+
+#     def _try_combine_exact(self, a, b):
+#         if a.compare(b) == 0:
+#             return a
+#         else:
+#             raise VersionsNotCompatibleException()
+
+#     def _try_combine_lower_bound_with_exact(self, lower, exact):
+#         comparison = lower.compare(exact)
+
+#         if (comparison < 0 or
+#             (comparison == 0 and
+#              lower.matcher == Matchers.GREATER_THAN_OR_EQUAL)):
+#             return exact
+
+#         raise VersionsNotCompatibleException()
+
+#     def _try_combine_lower_bound(self, a, b):
+#         if b.is_unbounded:
+#             return a
+#         elif a.is_unbounded:
+#             return b
+
+#         if not (a.is_exact or b.is_exact):
+#             comparison = (a.compare(b) < 0)
+
+#             if comparison:
+#                 return b
+#             else:
+#                 return a
+
+#         elif a.is_exact:
+#             return self._try_combine_lower_bound_with_exact(b, a)
+
+#         elif b.is_exact:
+#             return self._try_combine_lower_bound_with_exact(a, b)
+
+#     def _try_combine_upper_bound_with_exact(self, upper, exact):
+#         comparison = upper.compare(exact)
+
+#         if (comparison > 0 or
+#             (comparison == 0 and
+#              upper.matcher == Matchers.LESS_THAN_OR_EQUAL)):
+#             return exact
+
+#         raise VersionsNotCompatibleException()
+
+#     def _try_combine_upper_bound(self, a, b):
+#         if b.is_unbounded:
+#             return a
+#         elif a.is_unbounded:
+#             return b
+
+#         if not (a.is_exact or b.is_exact):
+#             comparison = (a.compare(b) > 0)
+
+#             if comparison:
+#                 return b
+#             else:
+#                 return a
+
+#         elif a.is_exact:
+#             return self._try_combine_upper_bound_with_exact(b, a)
+
+#         elif b.is_exact:
+#             return self._try_combine_upper_bound_with_exact(a, b)
+
+#     def reduce(self, other):
+#         start = None
+
+#         if(self.start.is_exact and other.start.is_exact):
+#             start = end = self._try_combine_exact(self.start, other.start)
+
+#         else:
+#             start = self._try_combine_lower_bound(self.start, other.start)
+#             end = self._try_combine_upper_bound(self.end, other.end)
+
+#         if start.compare(end) > 0:
+#             raise VersionsNotCompatibleException()
+
+#         return VersionRange(start=start, end=end)
+
+#     def __str__(self):
+#         result = []
+
+#         if self.start.is_unbounded and self.end.is_unbounded:
+#             return 'ANY'
+
+#         if not self.start.is_unbounded:
+#             result.append(self.start.to_version_string())
+
+#         if not self.end.is_unbounded:
+#             result.append(self.end.to_version_string())
+
+#         return ', '.join(result)
+
+#     def to_version_string_pair(self):
+#         to_return = []
+
+#         if not self.start.is_unbounded:
+#             to_return.append(self.start.to_version_string())
+
+#         if not self.end.is_unbounded:
+#             to_return.append(self.end.to_version_string())
+
+#         return to_return
+
+
+@dataclass
+class VersionSpecifier(VersionSpecification):
+    def to_version_string(self, skip_matcher=False):
+        prerelease = ''
+        build = ''
+        matcher = ''
+
+        if self.prerelease:
+            prerelease = '-' + self.prerelease
+
+        if self.build:
+            build = '+' + self.build
+
+        if not skip_matcher:
+            matcher = self.matcher
+        return '{}{}.{}.{}{}{}'.format(
+            matcher,
+            self.major,
+            self.minor,
+            self.patch,
+            prerelease,
+            build)
+
+    @classmethod
+    def from_version_string(cls, version_string):
+        match = _VERSION_REGEX.match(version_string)
+
+        if not match:
+            raise dbt.exceptions.SemverException(
+                'Could not parse version "{}"'.format(version_string))
+
+        matched = {k: v for k, v in match.groupdict().items() if v is not None}
+
+        return cls.from_dict(matched)
+
+    def __str__(self):
+        return self.to_version_string()
+
+    def to_range(self):
+        range_start: VersionSpecifier = UnboundedVersionSpecifier()
+        range_end: VersionSpecifier = UnboundedVersionSpecifier()
+
+        if self.matcher == Matchers.EXACT:
+            range_start = self
+            range_end = self
+
+        elif self.matcher in [Matchers.GREATER_THAN,
+                              Matchers.GREATER_THAN_OR_EQUAL]:
+            range_start = self
+
+        elif self.matcher in [Matchers.LESS_THAN,
+                              Matchers.LESS_THAN_OR_EQUAL]:
+            range_end = self
+
+        return VersionRange(
+            start=range_start,
+            end=range_end)
+
+    def compare(self, other):
+        if self.is_unbounded or other.is_unbounded:
+            return 0
+
+        for key in ['major', 'minor', 'patch']:
+            comparison = int(getattr(self, key)) - int(getattr(other, key))
+
+            if comparison > 0:
+                return 1
+            elif comparison < 0:
+                return -1
+
+        equal = ((self.matcher == Matchers.GREATER_THAN_OR_EQUAL and
+                  other.matcher == Matchers.LESS_THAN_OR_EQUAL) or
+                 (self.matcher == Matchers.LESS_THAN_OR_EQUAL and
+                  other.matcher == Matchers.GREATER_THAN_OR_EQUAL))
+        if equal:
+            return 0
+
+        lt = ((self.matcher == Matchers.LESS_THAN and
+               other.matcher == Matchers.LESS_THAN_OR_EQUAL) or
+              (other.matcher == Matchers.GREATER_THAN and
+               self.matcher == Matchers.GREATER_THAN_OR_EQUAL) or
+              (self.is_upper_bound and other.is_lower_bound))
+        if lt:
+            return -1
+
+        gt = ((other.matcher == Matchers.LESS_THAN and
+               self.matcher == Matchers.LESS_THAN_OR_EQUAL) or
+              (self.matcher == Matchers.GREATER_THAN and
+               other.matcher == Matchers.GREATER_THAN_OR_EQUAL) or
+              (self.is_lower_bound and other.is_upper_bound))
+        if gt:
+            return 1
+
+        return 0
+
+    def __lt__(self, other):
+        return self.compare(other) == -1
+
+    def __gt__(self, other):
+        return self.compare(other) == 1
+
+    def __eq___(self, other):
+        return self.compare(other) == 0
+
+    def __cmp___(self, other):
+        return self.compare(other)
+
+    @property
+    def is_unbounded(self):
+        return False
+
+    @property
+    def is_lower_bound(self):
+        return self.matcher in [Matchers.GREATER_THAN,
+                                Matchers.GREATER_THAN_OR_EQUAL]
+
+    @property
+    def is_upper_bound(self):
+        return self.matcher in [Matchers.LESS_THAN,
+                                Matchers.LESS_THAN_OR_EQUAL]
+
+    @property
+    def is_exact(self):
+        return self.matcher == Matchers.EXACT
+
+
+@dataclass
+class VersionRange:
+    start: VersionSpecifier
+    end: VersionSpecifier
 
     def _try_combine_exact(self, a, b):
         if a.compare(b) == 0:
@@ -171,132 +409,6 @@ class VersionRange(dbt.utils.AttrDict):
             to_return.append(self.end.to_version_string())
 
         return to_return
-
-
-@dataclass
-class VersionSpecifier(VersionSpecification):
-    def to_version_string(self, skip_matcher=False):
-        prerelease = ''
-        build = ''
-        matcher = ''
-
-        if self.prerelease:
-            prerelease = '-' + self.prerelease
-
-        if self.build:
-            build = '+' + self.build
-
-        if not skip_matcher:
-            matcher = self.matcher
-        return '{}{}.{}.{}{}{}'.format(
-            matcher,
-            self.major,
-            self.minor,
-            self.patch,
-            prerelease,
-            build)
-
-    @classmethod
-    def from_version_string(cls, version_string):
-        match = _VERSION_REGEX.match(version_string)
-
-        if not match:
-            raise dbt.exceptions.SemverException(
-                'Could not parse version "{}"'.format(version_string))
-
-        matched = {k: v for k, v in match.groupdict().items() if v is not None}
-
-        return cls.from_dict(matched)
-
-    def __str__(self):
-        return self.to_version_string()
-
-    def to_range(self):
-        range_start = UnboundedVersionSpecifier()
-        range_end = UnboundedVersionSpecifier()
-
-        if self.matcher == Matchers.EXACT:
-            range_start = self
-            range_end = self
-
-        elif self.matcher in [Matchers.GREATER_THAN,
-                              Matchers.GREATER_THAN_OR_EQUAL]:
-            range_start = self
-
-        elif self.matcher in [Matchers.LESS_THAN,
-                              Matchers.LESS_THAN_OR_EQUAL]:
-            range_end = self
-
-        return VersionRange(
-            start=range_start,
-            end=range_end)
-
-    def compare(self, other):
-        if self.is_unbounded or other.is_unbounded:
-            return 0
-
-        for key in ['major', 'minor', 'patch']:
-            comparison = int(getattr(self, key)) - int(getattr(other, key))
-
-            if comparison > 0:
-                return 1
-            elif comparison < 0:
-                return -1
-
-        equal = ((self.matcher == Matchers.GREATER_THAN_OR_EQUAL and
-                  other.matcher == Matchers.LESS_THAN_OR_EQUAL) or
-                 (self.matcher == Matchers.LESS_THAN_OR_EQUAL and
-                  other.matcher == Matchers.GREATER_THAN_OR_EQUAL))
-        if equal:
-            return 0
-
-        lt = ((self.matcher == Matchers.LESS_THAN and
-               other.matcher == Matchers.LESS_THAN_OR_EQUAL) or
-              (other.matcher == Matchers.GREATER_THAN and
-               self.matcher == Matchers.GREATER_THAN_OR_EQUAL) or
-              (self.is_upper_bound and other.is_lower_bound))
-        if lt:
-            return -1
-
-        gt = ((other.matcher == Matchers.LESS_THAN and
-               self.matcher == Matchers.LESS_THAN_OR_EQUAL) or
-              (self.matcher == Matchers.GREATER_THAN and
-               other.matcher == Matchers.GREATER_THAN_OR_EQUAL) or
-              (self.is_lower_bound and other.is_upper_bound))
-        if gt:
-            return 1
-
-        return 0
-
-    def __lt__(self, other):
-        return self.compare(other) == -1
-
-    def __gt__(self, other):
-        return self.compare(other) == 1
-
-    def __eq___(self, other):
-        return self.compare(other) == 0
-
-    def __cmp___(self, other):
-        return self.compare(other)
-
-    @property
-    def is_unbounded(self):
-        return False
-
-    @property
-    def is_lower_bound(self):
-        return self.matcher in [Matchers.GREATER_THAN,
-                                Matchers.GREATER_THAN_OR_EQUAL]
-
-    @property
-    def is_upper_bound(self):
-        return self.matcher in [Matchers.LESS_THAN,
-                                Matchers.LESS_THAN_OR_EQUAL]
-
-    @property
-    def is_exact(self):
-        return self.matcher == Matchers.EXACT
 
 
 class UnboundedVersionSpecifier(VersionSpecifier):
