@@ -1,12 +1,11 @@
 on: pull_request
 
 jobs:
-  hello_world_job:
+  push_from_fork:
     runs-on: ubuntu-latest
-    name: debug job
+    name: push_from_fork
     steps:
-    - name: debug it
-      id: hello
-      uses: drewbanin/data-build-bot@v1
-      with:
-        pr-number: 2
+      - name: Checkout
+        uses: actions/checkout@v2
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
