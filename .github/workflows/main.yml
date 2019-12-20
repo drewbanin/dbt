@@ -9,4 +9,4 @@ jobs:
       id: hello
       uses: drewbanin/data-build-bot@v1
       with:
-        pr-number: 1
+        pr-number: 2
