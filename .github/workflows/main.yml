@@ -5,7 +5,14 @@ jobs:
     runs-on: ubuntu-latest
     name: push_from_fork
     steps:
-      - name: Checkout
+      - name: Checkout from fork
         uses: actions/checkout@v2
         with:
           ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Push to fishtown-analytics/dbt
+        run: |
+          git remote add fishtown git@github.com:drewbanin/dbt.git
+          git fetch fishtown
+          pr_no=$(echo $GITHUB_REF | awk -F'/' '{ print $3 }')
+          git push --force fishtown ${GITHUB_SHA}:pr/${pr_no}
