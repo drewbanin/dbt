@@ -1,0 +1,12 @@
+on: [push]
+
+jobs:
+  hello_world_job:
+    runs-on: ubuntu-latest
+    name: debug job
+    steps:
+    - name: debug it
+      id: hello
+      uses: drewbanin/data-build-bot@v1
+      with:
+        pr-number: 1
